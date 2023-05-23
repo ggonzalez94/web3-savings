@@ -4,8 +4,10 @@ pragma solidity ^0.8.19;
 import "openzeppelin-contracts/access/Ownable.sol";
 import "openzeppelin-contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import "chainlink/v0.8/VRFConsumerBaseV2.sol";
 
-contract Pasanaku is Ownable {
+contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     using SafeERC20 for IERC20;
 
     struct Game {
@@ -13,6 +15,9 @@ contract Pasanaku is Ownable {
         uint256 frequency; //should we set a min and max cap on the frequency to avoid periods being super short or super long?
         uint256 amount; // to be deposited every period
         address token; //should we have a set of allowed tokens?
+        uint256 numberOfPlayers; //should we have a min and max cap on the number of players?
+        address[] players; // the players of the game. The order of the players is decided by a random number
+        bool ready; // true if the random number has been generated
     }
 
     struct Player {
@@ -20,9 +25,35 @@ contract Pasanaku is Ownable {
         uint256 lastPlayed; // the last time the player deposited
     }
 
+    uint16 private constant REQUEST_CONFIRMATIONS = 3; // 3 is the minimum number of request confirmations in most chains
+    uint32 private constant CALLBACK_GAS_LIMIT = 100000; //TODO: adjust based on gas reports on the fallback function
+    uint32 private constant NUM_WORDS = 1; // we only need one random number
+    uint64 private immutable SUBSCRIPTION_ID;
+    VRFCoordinatorV2Interface private immutable COORDINATOR;
+    bytes32 private immutable KEY_HASH;
+
     mapping(uint256 id => Game game) private _games;
     mapping(uint256 gameId => mapping(address playerAddress => Player player))
-        private _players; // a separate mapping made more sense for gas costs and code complexity
+        private _players; // a separate mapping made more sense for gas costs and code complexity. MAYBE NOT BECAUSE OF THE SHUFFLING
+    mapping(uint256 gameId => mapping(uint256 turn => address player))
+        private _turns; // Turn of each player
+
+    /**
+     * @notice Constructor inherits VRFConsumerBaseV2
+     *
+     * @param subscriptionId - the subscription ID that this contract uses for funding requests
+     * @param vrfCoordinator - coordinator, check https://docs.chain.link/docs/vrf-contracts/#configurations
+     * @param keyHash - the gas lane to use, which specifies the maximum gas price to bump to
+     */
+    constructor(
+        uint64 subscriptionId,
+        address vrfCoordinator,
+        bytes32 keyHash
+    ) VRFConsumerBaseV2(vrfCoordinator) {
+        SUBSCRIPTION_ID = subscriptionId;
+        COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
+        KEY_HASH = keyHash;
+    }
 
     // starts a new game
     function start(
@@ -32,14 +63,27 @@ contract Pasanaku is Ownable {
         address token
     ) external {
         require(frequency > 0, "Pasanaku: frequency must be greater than 0");
-        uint256 id = uint256(
-            keccak256(abi.encodePacked(msg.sender, block.timestamp))
-        ); //decide on a better way to get the id?
+        // request a random number - we will use this to decide the order of the players
+        uint256 requestId = COORDINATOR.requestRandomWords(
+            KEY_HASH,
+            SUBSCRIPTION_ID,
+            REQUEST_CONFIRMATIONS,
+            CALLBACK_GAS_LIMIT,
+            NUM_WORDS
+        );
         // create game
-        _games[id] = Game(block.timestamp, frequency, amount, token);
+        _games[requestId] = Game(
+            block.timestamp,
+            frequency,
+            amount,
+            token,
+            players.length,
+            players,
+            false
+        );
         // add players to the game
         for (uint256 i = 0; i < players.length; i++) {
-            _players[id][msg.sender] = Player(true, block.timestamp);
+            _players[requestId][msg.sender] = Player(true, block.timestamp);
         }
     }
 
@@ -47,6 +91,10 @@ contract Pasanaku is Ownable {
         Game storage game = _games[gameId];
         Player storage player = _players[gameId][msg.sender];
         uint256 gameAmount = game.amount; //avoid reading multiple times from storage
+
+        // require the game to be ready
+        require(game.ready, "Pasanaku: game is not ready");
+
         //revert if amount is not equal to the amount set for the game
         require(
             amount == gameAmount,
@@ -98,27 +146,45 @@ contract Pasanaku is Ownable {
         isPlaying = _players[game][player].isPlaying;
     }
 
-    function _canPlay(
-        uint256 gameId,
-        address playerAddress
-    ) internal view returns (bool) {
-        Game storage game = _games[gameId];
-        Player storage player = _players[gameId][playerAddress];
+    /**
+     * @notice Callback function used by VRF Coordinator. Here we use the random number to decide the order of the players
+     *
+     * @param requestId - id of the request
+     * @param randomWords - array of random results from VRF Coordinator
+     */
+    function fulfillRandomWords(
+        uint256 requestId,
+        uint256[] memory randomWords
+    ) internal override {
+        uint256 word = randomWords[0];
+        Game storage game = _games[requestId];
+        uint256 numberOfPlayers = game.numberOfPlayers;
+        address[] memory players = game.players;
 
-        uint256 currentPeriod = (block.timestamp - game.startDate) /
-            game.frequency;
-        bool isCurrentPeriod = block.timestamp >=
-            game.startDate + currentPeriod * game.frequency;
-
-        bool hasPlayedInCurrentPeriod;
-        if (player.lastPlayed == 0) {
-            hasPlayedInCurrentPeriod = false;
-        } else {
-            uint256 lastPlayedPeriod = (player.lastPlayed - game.startDate) /
-                game.frequency;
-            hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod;
+        // create en empty array with the turn of the players
+        // TODO: maybe using push is more gas efficient??
+        uint256[] memory playerIndexes = new uint256[](numberOfPlayers);
+        for (uint i = 0; i < numberOfPlayers; i++) {
+            playerIndexes[i] = i;
         }
 
-        return (isCurrentPeriod && !hasPlayedInCurrentPeriod);
+        // Fisher-Yates shuffle
+        for (uint256 i = numberOfPlayers - 1; i > 0; i--) {
+            uint256 j = word % (i + 1);
+            word /= 10;
+            // Swap playerIndexes[i] and playerIndexes[j]
+            (playerIndexes[i], playerIndexes[j]) = (
+                playerIndexes[j],
+                playerIndexes[i]
+            );
+        }
+
+        // Set the turn order in the _turns mapping
+        for (uint256 i = 0; i < numberOfPlayers; i++) {
+            _turns[requestId][i] = players[playerIndexes[i]];
+        }
+
+        // Now we are ready to start the game
+        game.ready = true;
     }
 }
