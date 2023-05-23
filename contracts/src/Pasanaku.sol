@@ -10,6 +10,7 @@ import "chainlink/v0.8/VRFConsumerBaseV2.sol";
 contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     using SafeERC20 for IERC20;
 
+    //TODO: optimize storage by packing variables where possible
     struct Game {
         uint256 startDate; // the time when the game started
         uint256 frequency; //should we set a min and max cap on the frequency to avoid periods being super short or super long?
@@ -25,6 +26,12 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 lastPlayed; // the last time the player deposited
     }
 
+    // represents a turn in the game and the accumulated prize for that turn
+    struct Turn {
+        address player;
+        uint256 prize; // accumulated prize for that turn
+    }
+
     uint16 private constant REQUEST_CONFIRMATIONS = 3; // 3 is the minimum number of request confirmations in most chains
     uint32 private constant CALLBACK_GAS_LIMIT = 100000; //TODO: adjust based on gas reports on the fallback function
     uint32 private constant NUM_WORDS = 1; // we only need one random number
@@ -34,8 +41,8 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
     mapping(uint256 id => Game game) private _games;
     mapping(uint256 gameId => mapping(address playerAddress => Player player))
-        private _players; // a separate mapping made more sense for gas costs and code complexity. MAYBE NOT BECAUSE OF THE SHUFFLING
-    mapping(uint256 gameId => mapping(uint256 turn => address player))
+        private _players; // we also use a mapping to easily query players
+    mapping(uint256 gameId => mapping(uint256 turnId => Turn turn))
         private _turns; // Turn of each player
 
     /**
@@ -63,7 +70,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         address token
     ) external {
         require(frequency > 0, "Pasanaku: frequency must be greater than 0");
-        // request a random number - we will use this to decide the order of the players
+        // request a random number - we will use this to decide the order of the players and as a gameId
         uint256 requestId = COORDINATOR.requestRandomWords(
             KEY_HASH,
             SUBSCRIPTION_ID,
@@ -114,7 +121,11 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             "Pasanaku: we are outside the current period"
         );
 
-        //TODO: revert if the game has finished(currentPeriod == amount of players)
+        //TODO: revert if the game has finished(currentPeriod >= amount of players)
+        require(
+            currentPeriod < game.numberOfPlayers,
+            "Pasanaku: game has finished"
+        );
 
         //revert if player has already played in the current period
         bool hasPlayedInCurrentPeriod;
@@ -130,6 +141,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // update state
         player.lastPlayed = block.timestamp;
+        _turns[gameId][currentPeriod].prize += gameAmount;
 
         // transfer tokens
         IERC20(game.token).safeTransferFrom(
@@ -137,6 +149,31 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             address(this),
             gameAmount
         );
+    }
+
+    function claimPrize(uint256 gameId, uint256 period) external {
+        Game storage game = _games[gameId];
+
+        // require the game to be ready
+        require(game.ready, "Pasanaku: game is not ready");
+
+        // require that it is actually the player's turn to withdraw on that period
+        require(
+            _turns[gameId][period].player == msg.sender,
+            "Pasanaku: it's not your turn to withdraw"
+        );
+
+        // require that all players have deposited for the withdraw period
+        uint256 prize = _turns[gameId][period].prize;
+        require(
+            prize >= game.amount * game.numberOfPlayers, //prize should be always equal to game.amount * game.numberOfPlayers if all players have played
+            "Pasanaku: not all players have deposited"
+        );
+        // mark the period as completed by putting the prize back to zero
+        _turns[gameId][period].prize = 0;
+
+        // transfer the tokens to the player
+        IERC20(game.token).safeTransfer(msg.sender, prize);
     }
 
     function _isPlayer(
@@ -181,7 +218,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // Set the turn order in the _turns mapping
         for (uint256 i = 0; i < numberOfPlayers; i++) {
-            _turns[requestId][i] = players[playerIndexes[i]];
+            _turns[requestId][i] = Turn(players[playerIndexes[i]], 0); //initial prize for all periods is zero since there are no deposits
         }
 
         // Now we are ready to start the game
