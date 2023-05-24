@@ -68,10 +68,10 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 amount,
         address[] memory players,
         address token
-    ) external {
+    ) external returns (uint256 requestId) {
         require(frequency > 0, "Pasanaku: frequency must be greater than 0");
         // request a random number - we will use this to decide the order of the players and as a gameId
-        uint256 requestId = COORDINATOR.requestRandomWords(
+        requestId = COORDINATOR.requestRandomWords(
             KEY_HASH,
             SUBSCRIPTION_ID,
             REQUEST_CONFIRMATIONS,
@@ -90,7 +90,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         );
         // add players to the game
         for (uint256 i = 0; i < players.length; i++) {
-            _players[requestId][msg.sender] = Player(true, block.timestamp);
+            _players[requestId][players[i]] = Player(true, block.timestamp);
         }
     }
 
