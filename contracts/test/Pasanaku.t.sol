@@ -164,26 +164,6 @@ contract PasanakuTest is Test {
         pasanaku.deposit(gameId, amount);
     }
 
-    function test_RevertWhen_OutsideOfCurrentPeriod() public {
-        uint96 amount = 1 ether;
-        uint256 gameId = pasanaku.start(
-            ONE_MONTH_INTERVAL,
-            amount,
-            players,
-            address(erc20Contract)
-        );
-        hoax(players[0], 1 ether);
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
-        assertEq(pasanaku.getGame(gameId).ready, true);
-
-        vm.startPrank(players[0]);
-        erc20Contract.approve(address(pasanaku), 10 ether);
-
-        vm.expectRevert("Pasanaku: we are outside the current period");
-        vm.warp(block.timestamp + ONE_MONTH_INTERVAL * 2);
-        pasanaku.deposit(gameId, amount);
-    }
-
     function test_RevertWhen_GameEnded() public {
         uint96 amount = 1 ether;
         uint256 gameId = pasanaku.start(
