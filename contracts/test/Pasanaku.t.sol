@@ -3,25 +3,43 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import "../src/Pasanaku.sol";
-import "openzeppelin-contracts/token/ERC20/ERC20.sol";
+import {ERC20} from "openzeppelin-contracts/token/ERC20/ERC20.sol";
 import {VRFCoordinatorV2Mock} from "chainlink/v0.8/mocks/VRFCoordinatorV2Mock.sol";
 import {ERC20Mock} from "./mocks/ERC20Mock.sol";
 
 contract PasanakuTest is Test {
+    address private constant PLAYER_1 = address(1);
+    address private constant PLAYER_2 = address(2);
+    address private constant PLAYER_3 = address(3);
+    address private constant PLAYER_4 = address(4);
+    address private constant PLAYER_5 = address(5);
+    address private constant NON_PLAYER_1 = address(6);
+    address private constant NON_PLAYER_2 = address(7);
+    address private constant NON_PLAYER_3 = address(8);
+    address private constant NON_PLAYER_4 = address(9);
+    address private constant NON_PLAYER_5 = address(10);
+
+    bytes32 private constant KEY_HASH =
+        0xd89b2bf150e3b9e13446986e571fb9cab24b13cea0a43ea20a6049a85cc807cc; //Doesn't really matter
+
     Pasanaku public pasanaku;
     address[] public players;
     address[] public non_players;
     VRFCoordinatorV2Mock public vrfCoordinatorV2Mock;
     uint64 public vrfCoordinatorV2SubscriptionId;
     uint256 ONE_MONTH_INTERVAL = 30 days;
-    bytes32 KEY_HASH =
-        0xd89b2bf150e3b9e13446986e571fb9cab24b13cea0a43ea20a6049a85cc807cc;
+
     ERC20Mock public erc20Contract;
 
     function setUp() public {
-        erc20Contract = new ERC20Mock("as", "sdasd");
+        erc20Contract = new ERC20Mock("Mck", "Mock");
 
-        vrfCoordinatorV2Mock = new VRFCoordinatorV2Mock(10, 100);
+        // Values taken from this repo https://github.com/PatrickAlphaC/foundry-smart-contract-lottery-f23/blob/main/script/HelperConfig.s.sol#LL78C9-L79C35
+        // Does it really matter?
+        uint96 baseFee = 0.25 ether;
+        uint96 gasPriceLink = 1e9;
+
+        vrfCoordinatorV2Mock = new VRFCoordinatorV2Mock(baseFee, gasPriceLink);
         vrfCoordinatorV2SubscriptionId = vrfCoordinatorV2Mock
             .createSubscription();
         vrfCoordinatorV2Mock.fundSubscription(
@@ -40,13 +58,13 @@ contract PasanakuTest is Test {
             address(pasanaku)
         );
 
-        players = [address(10), address(1), address(2), address(3), address(4)];
+        players = [PLAYER_1, PLAYER_2, PLAYER_3, PLAYER_4, PLAYER_5];
         non_players = [
-            address(5),
-            address(6),
-            address(7),
-            address(8),
-            address(9)
+            NON_PLAYER_1,
+            NON_PLAYER_2,
+            NON_PLAYER_3,
+            NON_PLAYER_4,
+            NON_PLAYER_5
         ];
     }
 
