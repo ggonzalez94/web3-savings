@@ -6,6 +6,14 @@ import "openzeppelin-contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
 import "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "chainlink/v0.8/VRFConsumerBaseV2.sol";
+error Pasanaku_InvalidFrequency();
+error Pasanaku_GameNotReady();
+error Pasanaku_GameEnded();
+error Pasanaku_NotAPlayer();
+error Pasanaku_AlreadyDepositedInCurrentPeriod();
+error Pasanaku_InvalidAmount();
+error Pasanaku_NotAllPlayersHaveDeposited();
+error Pasanaku_IsNotPlayerTurnToWidthdraw();
 
 contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     using SafeERC20 for IERC20;
@@ -33,7 +41,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     }
 
     uint16 private constant REQUEST_CONFIRMATIONS = 3; // 3 is the minimum number of request confirmations in most chains
-    uint32 private constant CALLBACK_GAS_LIMIT = 100000; //TODO: adjust based on gas reports on the fallback function
+    uint32 private constant CALLBACK_GAS_LIMIT = 1000000; //TODO: adjust based on gas reports on the fallback function
     uint32 private constant NUM_WORDS = 1; // we only need one random number
     uint64 private immutable SUBSCRIPTION_ID;
     VRFCoordinatorV2Interface private immutable COORDINATOR;
@@ -68,10 +76,12 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 amount,
         address[] memory players,
         address token
-    ) external {
-        require(frequency > 0, "Pasanaku: frequency must be greater than 0");
+    ) external returns (uint256 requestId) {
+        if (frequency == 0) {
+            revert Pasanaku_InvalidFrequency();
+        }
         // request a random number - we will use this to decide the order of the players and as a gameId
-        uint256 requestId = COORDINATOR.requestRandomWords(
+        requestId = COORDINATOR.requestRandomWords(
             KEY_HASH,
             SUBSCRIPTION_ID,
             REQUEST_CONFIRMATIONS,
@@ -90,7 +100,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         );
         // add players to the game
         for (uint256 i = 0; i < players.length; i++) {
-            _players[requestId][msg.sender] = Player(true, block.timestamp);
+            _players[requestId][players[i]] = Player(true, 0);
         }
     }
 
@@ -100,32 +110,28 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 gameAmount = game.amount; //avoid reading multiple times from storage
 
         // require the game to be ready
-        require(game.ready, "Pasanaku: game is not ready");
+        if (!game.ready) {
+            revert Pasanaku_GameNotReady();
+        }
 
         //revert if amount is not equal to the amount set for the game
-        require(
-            amount == gameAmount,
-            "Pasanaku: amount is not equal to the amount set for the game"
-        );
+        if (amount != gameAmount) {
+            revert Pasanaku_InvalidAmount();
+        }
+
         //revert if msg.sender is not part of the players array
-        require(
-            _isPlayer(gameId, msg.sender),
-            "Pasanaku: msg.sender is not part of the players array"
-        );
+        if (!_isPlayer(gameId, msg.sender)) {
+            revert Pasanaku_NotAPlayer();
+        }
 
         //revert if we are outside the current period
         uint256 currentPeriod = (block.timestamp - game.startDate) /
             game.frequency;
-        require(
-            block.timestamp >= game.startDate + currentPeriod * game.frequency,
-            "Pasanaku: we are outside the current period"
-        );
 
         //TODO: revert if the game has finished(currentPeriod >= amount of players)
-        require(
-            currentPeriod < game.numberOfPlayers,
-            "Pasanaku: game has finished"
-        );
+        if (currentPeriod >= game.numberOfPlayers) {
+            revert Pasanaku_GameEnded();
+        }
 
         //revert if player has already played in the current period
         bool hasPlayedInCurrentPeriod;
@@ -134,10 +140,9 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
                 game.frequency;
             hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod; //lastPlayedPeriod should never be greater than current period, at most equal
         }
-        require(
-            !hasPlayedInCurrentPeriod,
-            "Pasanaku: player has already played in the current period"
-        );
+        if (hasPlayedInCurrentPeriod) {
+            revert Pasanaku_AlreadyDepositedInCurrentPeriod();
+        }
 
         // update state
         player.lastPlayed = block.timestamp;
@@ -155,20 +160,21 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         Game storage game = _games[gameId];
 
         // require the game to be ready
-        require(game.ready, "Pasanaku: game is not ready");
+        if (!game.ready) {
+            revert Pasanaku_GameNotReady();
+        }
 
         // require that it is actually the player's turn to withdraw on that period
-        require(
-            _turns[gameId][period].player == msg.sender,
-            "Pasanaku: it's not your turn to withdraw"
-        );
+        if (_turns[gameId][period].player != msg.sender) {
+            revert Pasanaku_IsNotPlayerTurnToWidthdraw();
+        }
 
         // require that all players have deposited for the withdraw period
         uint256 prize = _turns[gameId][period].prize;
-        require(
-            prize >= game.amount * game.numberOfPlayers, //prize should be always equal to game.amount * game.numberOfPlayers if all players have played
-            "Pasanaku: not all players have deposited"
-        );
+        if (prize < game.amount * game.numberOfPlayers) {
+            //prize should be always equal to game.amount * game.numberOfPlayers if all players have played
+            revert Pasanaku_NotAllPlayersHaveDeposited();
+        }
         // mark the period as completed by putting the prize back to zero
         _turns[gameId][period].prize = 0;
 
@@ -223,5 +229,16 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // Now we are ready to start the game
         game.ready = true;
+    }
+
+    function getGame(uint256 gameId) external view returns (Game memory game) {
+        return _games[gameId];
+    }
+
+    function getPlayer(
+        uint256 gameId,
+        address player
+    ) external view returns (Player memory) {
+        return _players[gameId][player];
     }
 }
