@@ -10,7 +10,7 @@ error Pasanaku_InvalidFrequency();
 error Pasanaku_GameNotReady();
 error Pasanaku_GameEnded();
 error Pasanaku_NotAPlayer();
-error Pasanaku_AlreadyDeposited();
+error Pasanaku_AlreadyDepositedInCurrentPeriod();
 error Pasanaku_InvalidAmount();
 error Pasanaku_NotAllPlayersHaveDeposited();
 error Pasanaku_IsNotPlayerTurnToWidthdraw();
@@ -141,7 +141,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod; //lastPlayedPeriod should never be greater than current period, at most equal
         }
         if (hasPlayedInCurrentPeriod) {
-            revert Pasanaku_AlreadyDeposited();
+            revert Pasanaku_AlreadyDepositedInCurrentPeriod();
         }
 
         // update state

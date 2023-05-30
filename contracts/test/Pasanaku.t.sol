@@ -1,23 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import "../src/Pasanaku.sol";
 import "openzeppelin-contracts/token/ERC20/ERC20.sol";
 import {VRFCoordinatorV2Mock} from "chainlink/v0.8/mocks/VRFCoordinatorV2Mock.sol";
-
-contract MyToken is ERC20 {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
-
-    function mint(address account, uint256 amount) external {
-        _mint(account, amount);
-    }
-}
-
-struct Player {
-    bool isPlaying;
-    uint256 lastPlayed; // the last time the player deposited
-}
+import {ERC20Mock} from "./mocks/ERC20Mock.sol";
 
 contract PasanakuTest is Test {
     Pasanaku public pasanaku;
@@ -28,10 +16,10 @@ contract PasanakuTest is Test {
     uint256 ONE_MONTH_INTERVAL = 30 days;
     bytes32 KEY_HASH =
         0xd89b2bf150e3b9e13446986e571fb9cab24b13cea0a43ea20a6049a85cc807cc;
-    MyToken public erc20Contract;
+    ERC20Mock public erc20Contract;
 
     function setUp() public {
-        erc20Contract = new MyToken("as", "sdasd");
+        erc20Contract = new ERC20Mock("as", "sdasd");
 
         vrfCoordinatorV2Mock = new VRFCoordinatorV2Mock(10, 100);
         vrfCoordinatorV2SubscriptionId = vrfCoordinatorV2Mock
@@ -202,7 +190,7 @@ contract PasanakuTest is Test {
 
         pasanaku.deposit(gameId, amount);
 
-        vm.expectRevert(Pasanaku_AlreadyDeposited.selector);
+        vm.expectRevert(Pasanaku_AlreadyDepositedInCurrentPeriod.selector);
         pasanaku.deposit(gameId, amount);
     }
 }
