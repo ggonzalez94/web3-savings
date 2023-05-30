@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import "openzeppelin-contracts/access/Ownable.sol";
-import "openzeppelin-contracts/token/ERC20/IERC20.sol";
-import "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
-import "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
-import "chainlink/v0.8/VRFConsumerBaseV2.sol";
+import {Ownable} from "openzeppelin-contracts/access/Ownable.sol";
+import {IERC20} from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import {VRFCoordinatorV2Interface} from "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import {VRFConsumerBaseV2} from "chainlink/v0.8/VRFConsumerBaseV2.sol";
+
 error Pasanaku_InvalidFrequency();
 error Pasanaku_GameNotReady();
 error Pasanaku_GameEnded();
 error Pasanaku_NotAPlayer();
-error Pasanaku_AlreadyDeposited();
+error Pasanaku_AlreadyDepositedInCurrentPeriod();
 error Pasanaku_InvalidAmount();
 error Pasanaku_NotAllPlayersHaveDeposited();
 error Pasanaku_IsNotPlayerTurnToWidthdraw();
@@ -46,7 +47,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     uint256 private constant FEE = 2; //2% TODO: Decide on the right protocol fee
     uint64 private immutable SUBSCRIPTION_ID;
     VRFCoordinatorV2Interface private immutable COORDINATOR;
-    bytes32 private immutable KEY_HASH;
+    bytes32 private immutable KEY_HASH; // Gas Lane
 
     mapping(uint256 id => Game game) private _games;
     mapping(uint256 gameId => mapping(address playerAddress => Player player))
@@ -142,7 +143,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod; //lastPlayedPeriod should never be greater than current period, at most equal
         }
         if (hasPlayedInCurrentPeriod) {
-            revert Pasanaku_AlreadyDeposited();
+            revert Pasanaku_AlreadyDepositedInCurrentPeriod();
         }
 
         // update state
