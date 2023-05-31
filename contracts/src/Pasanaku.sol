@@ -25,7 +25,6 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 frequency; //should we set a min and max cap on the frequency to avoid periods being super short or super long?
         uint256 amount; // to be deposited every period
         address token; //should we have a set of allowed tokens?
-        uint256 numberOfPlayers; //should we have a min and max cap on the number of players?
         address[] players; // the players of the game. The order of the players is decided by a random number
         bool ready; // true if the random number has been generated
     }
@@ -95,7 +94,6 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             frequency,
             amount,
             token,
-            players.length,
             players,
             false
         );
@@ -130,7 +128,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             game.frequency;
 
         //TODO: revert if the game has finished(currentPeriod >= amount of players)
-        if (currentPeriod >= game.numberOfPlayers) {
+        if (currentPeriod >= game.players.length) {
             revert Pasanaku_GameEnded();
         }
 
@@ -172,8 +170,8 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // require that all players have deposited for the withdraw period
         uint256 prize = _turns[gameId][period].prize;
-        if (prize < game.amount * game.numberOfPlayers) {
-            //prize should be always equal to game.amount * game.numberOfPlayers if all players have played
+        if (prize < game.amount * game.players.length) {
+            //prize should be always equal to game.amount * game.players.length if all players have played
             revert Pasanaku_NotAllPlayersHaveDeposited();
         }
         // mark the period as completed by putting the prize back to zero
@@ -202,7 +200,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     ) internal override {
         uint256 word = randomWords[0];
         Game storage game = _games[requestId];
-        uint256 numberOfPlayers = game.numberOfPlayers;
+        uint256 numberOfPlayers = game.players.length;
         address[] memory players = game.players;
 
         // create en empty array with the turn of the players
