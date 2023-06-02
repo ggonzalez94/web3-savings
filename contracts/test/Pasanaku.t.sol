@@ -151,9 +151,11 @@ contract PasanakuTest is Test {
         deal(address(erc20Contract), PLAYER_1, amount);
 
         // deposit `amount` number of tokens to the game and check that the right event is emitted
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
         vm.expectEmit(true, true, true, true);
         emit PlayerDeposited(gameId, PLAYER_1, 0, amount);
-        deposit(PLAYER_1, gameId, amount);
+        pasanaku.deposit(gameId, amount);
     }
 
     function test_deposit_transfersTokensToContract() public {
