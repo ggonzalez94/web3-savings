@@ -43,6 +43,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     uint16 private constant REQUEST_CONFIRMATIONS = 3; // 3 is the minimum number of request confirmations in most chains
     uint32 private constant CALLBACK_GAS_LIMIT = 1000000; //TODO: adjust based on gas reports on the fallback function
     uint32 private constant NUM_WORDS = 1; // we only need one random number
+    uint256 private constant FEE = 2; //2% TODO: Decide on the right protocol fee
     uint64 private immutable SUBSCRIPTION_ID;
     VRFCoordinatorV2Interface private immutable COORDINATOR;
     bytes32 private immutable KEY_HASH; // Gas Lane
@@ -177,8 +178,21 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         // mark the period as completed by putting the prize back to zero
         _turns[gameId][period].prize = 0;
 
+        // reserver a FEE % of the prize for the protocol
+        uint256 protocolFee = (prize * FEE) / 100;
+        prize -= protocolFee;
+
         // transfer the tokens to the player
         IERC20(game.token).safeTransfer(msg.sender, prize);
+    }
+
+    // Withdraws the full balance of the list of tokens
+    function withdrawRevenue(address[] memory tokens) external onlyOwner {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            IERC20 token = IERC20(tokens[i]);
+            uint256 balance = token.balanceOf(address(this));
+            token.safeTransfer(owner(), balance);
+        }
     }
 
     function _isPlayer(
