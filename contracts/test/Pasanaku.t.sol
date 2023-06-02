@@ -168,86 +168,99 @@ contract PasanakuTest is Test {
         pasanaku.deposit(gameId, amount);
     }
 
-    // function test_CanDepositWhenGameIsReady() public {
-    //     uint96 amount = 1 ether;
-    //     uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-    //     hoax(players[0], 1 ether);
-    //     assertEq(pasanaku.getGame(gameId).ready, false);
-    //     vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
-    //     assertEq(pasanaku.getGame(gameId).ready, true);
-    //     erc20Contract.mint(players[0], 10 ether);
+    function test_deposit_transfersTokensToContract() public {
+        uint256 amount = 1 ether;
+        // start game and fulfill random words
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
 
-    //     vm.prank(players[0]);
-    //     erc20Contract.approve(address(pasanaku), 10 ether);
+        // mint `amount`number of tokens to player 1
+        deal(address(erc20Contract), PLAYER_1, amount);
 
-    //     vm.prank(players[0]);
-    //     pasanaku.deposit(gameId, amount);
-    // }
+        // deposit `amount` number of tokens to the game and check that the right event is emitted
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
+        pasanaku.deposit(gameId, amount);
 
-    // function test_RevertWhen_GameNotReady() public {
-    //     address token = address(1);
-    //     uint96 amount = 1 ether;
-    //     uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, token);
-    //     hoax(msg.sender, 1 ether);
-    //     assertEq(pasanaku.getGame(gameId).ready, false);
-    //     vm.expectRevert(Pasanaku_GameNotReady.selector);
-    //     vm.prank(players[0]);
-    //     pasanaku.deposit(gameId, amount);
-    // }
+        // check that the contract has `amount` number of tokens
+        // and that the player has 0 tokens
+        assertEq(erc20Contract.balanceOf(address(pasanaku)), amount);
+        assertEq(erc20Contract.balanceOf(PLAYER_1), 0);
+    }
 
-    // function test_RevertWhen_InvalidAmount() public {
-    //     address token = address(1);
-    //     uint96 amount = 1 ether;
-    //     uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, token);
-    //     hoax(players[0], 1 ether);
-    //     vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
-    //     assertEq(pasanaku.getGame(gameId).ready, true);
-    //     vm.expectRevert(Pasanaku_InvalidAmount.selector);
-    //     vm.prank(players[0]);
-    //     pasanaku.deposit(gameId, amount + 1);
-    // }
+    function test_deposit_RevertsWhenGameIsNotReady() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
+        vm.expectRevert(Pasanaku_GameNotReady.selector);
+        pasanaku.deposit(gameId, amount);
+    }
 
-    // function test_RevertWhen_NotAPlayer() public {
-    //     address token = address(1);
-    //     uint96 amount = 1 ether;
-    //     uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, token);
-    //     hoax(non_players[0], 1 ether);
-    //     vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
-    //     assertEq(pasanaku.getGame(gameId).ready, true);
-    //     vm.expectRevert(Pasanaku_NotAPlayer.selector);
-    //     vm.prank(non_players[0]);
-    //     pasanaku.deposit(gameId, amount);
-    // }
+    function test_deposit_RevertsWhenAmountIsLower() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
+        vm.expectRevert(Pasanaku_InvalidAmount.selector);
+        pasanaku.deposit(gameId, amount - 1);
+    }
 
-    // function test_RevertWhen_GameEnded() public {
-    //     uint96 amount = 1 ether;
-    //     uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-    //     hoax(players[0], 1 ether);
-    //     vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
-    //     assertEq(pasanaku.getGame(gameId).ready, true);
+    function test_deposit_RevertsWhenAmountIsHigher() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
+        vm.expectRevert(Pasanaku_InvalidAmount.selector);
+        pasanaku.deposit(gameId, amount + 1);
+    }
 
-    //     vm.startPrank(players[0]);
-    //     erc20Contract.approve(address(pasanaku), 10 ether);
+    function test_deposit_RevertsWhenSenderIsNotAPlayer() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        vm.startPrank(NON_PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
+        vm.expectRevert(Pasanaku_NotAPlayer.selector);
+        pasanaku.deposit(gameId, amount);
+    }
 
-    //     vm.expectRevert(Pasanaku_GameEnded.selector);
-    //     vm.warp(block.timestamp + ONE_MONTH_INTERVAL * players.length);
-    //     pasanaku.deposit(gameId, amount);
-    // }
+    function test_deposit_RevertsWhenGameEnded() public {
+        // start the game
+        uint256 amount = 1 ether;
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 amountOfPeriods = players.length;
 
-    // function test_RevertWhen_AlreadyDeposited() public {
-    //     uint96 amount = 1 ether;
-    //     uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-    //     hoax(players[0], 1 ether);
-    //     vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
-    //     assertEq(pasanaku.getGame(gameId).ready, true);
-    //     erc20Contract.mint(players[0], 10 ether);
+        // move the block.timestamp so that the game has ended
+        uint256 finalTimestamp = block.timestamp + (ONE_MONTH_INTERVAL * amountOfPeriods);
+        vm.warp(finalTimestamp);
 
-    //     vm.startPrank(players[0]);
-    //     erc20Contract.approve(address(pasanaku), 10 ether);
+        // try to deposit
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount);
+        vm.expectRevert(Pasanaku_GameEnded.selector);
+        pasanaku.deposit(gameId, amount);
+    }
 
-    //     pasanaku.deposit(gameId, amount);
+    function test_deposit_RevertsIfPlayerDepositedInCurrentPeriod() public {
+        // start the game
+        uint256 amount = 1 ether;
+        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
 
-    //     vm.expectRevert(Pasanaku_AlreadyDepositedInCurrentPeriod.selector);
-    //     pasanaku.deposit(gameId, amount);
-    // }
+        // mint tokens to player 1
+        deal(address(erc20Contract), PLAYER_1, amount * 2);
+
+        // deposit for the first time
+        vm.startPrank(PLAYER_1);
+        erc20Contract.approve(address(pasanaku), amount * 2);
+        pasanaku.deposit(gameId, amount);
+
+        // try to deposit again
+        vm.expectRevert(Pasanaku_AlreadyDepositedInCurrentPeriod.selector);
+        pasanaku.deposit(gameId, amount);
+    }
 }

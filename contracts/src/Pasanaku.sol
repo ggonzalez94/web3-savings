@@ -116,7 +116,6 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             revert Pasanaku_NotAPlayer();
         }
 
-        //revert if we are outside the current period
         uint256 currentPeriod = (block.timestamp - game.startDate) / game.frequency;
 
         //TODO: revert if the game has finished(currentPeriod >= amount of players)
