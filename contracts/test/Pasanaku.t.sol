@@ -43,6 +43,7 @@ contract PasanakuTest is Test {
         uint256 indexed gameId, uint256 indexed frequency, address indexed token, uint256 amount, address[] players
     );
     event PlayerDeposited(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
+    event PrizeClaimed(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
 
     function setUp() public {
         erc20Contract = new ERC20("Mck", "Mock");
@@ -111,16 +112,13 @@ contract PasanakuTest is Test {
     function test_deposit_UpdatesLastPlayed() public {
         uint256 amount = 1 ether;
         // start game and fulfill random words
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // mint `amount`number of tokens to player 1
         deal(address(erc20Contract), PLAYER_1, amount);
 
         // deposit `amount` number of tokens to the game
-        vm.startPrank(PLAYER_1);
-        erc20Contract.approve(address(pasanaku), amount);
-        pasanaku.deposit(gameId, amount);
+        deposit(PLAYER_1, gameId, amount);
 
         // check that the last played is updated to block.timestamp
         assertEq(pasanaku.getPlayer(gameId, PLAYER_1).lastPlayed, block.timestamp);
@@ -129,22 +127,15 @@ contract PasanakuTest is Test {
     function test_deposit_IncreasesPrize() public {
         uint256 amount = 1 ether;
         // start game and fulfill random words
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // mint `amount`number of tokens to players 1 and 2
         deal(address(erc20Contract), PLAYER_1, amount);
         deal(address(erc20Contract), PLAYER_2, amount);
 
         // deposit twice with different players
-        vm.startPrank(PLAYER_1);
-        erc20Contract.approve(address(pasanaku), amount);
-        pasanaku.deposit(gameId, amount);
-        vm.stopPrank();
-
-        vm.startPrank(PLAYER_2);
-        erc20Contract.approve(address(pasanaku), amount);
-        pasanaku.deposit(gameId, amount);
+        deposit(PLAYER_1, gameId, amount);
+        deposit(PLAYER_2, gameId, amount);
 
         // check that the prize for the current period has increased
         uint256 period = 0;
@@ -154,33 +145,27 @@ contract PasanakuTest is Test {
     function test_deposit_EmitsDepositEvent() public {
         uint256 amount = 1 ether;
         // start game and fulfill random words
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // mint `amount`number of tokens to player 1
         deal(address(erc20Contract), PLAYER_1, amount);
 
         // deposit `amount` number of tokens to the game and check that the right event is emitted
-        vm.startPrank(PLAYER_1);
-        erc20Contract.approve(address(pasanaku), amount);
         vm.expectEmit(true, true, true, true);
         emit PlayerDeposited(gameId, PLAYER_1, 0, amount);
-        pasanaku.deposit(gameId, amount);
+        deposit(PLAYER_1, gameId, amount);
     }
 
     function test_deposit_transfersTokensToContract() public {
         uint256 amount = 1 ether;
         // start game and fulfill random words
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // mint `amount`number of tokens to player 1
         deal(address(erc20Contract), PLAYER_1, amount);
 
         // deposit `amount` number of tokens to the game and check that the right event is emitted
-        vm.startPrank(PLAYER_1);
-        erc20Contract.approve(address(pasanaku), amount);
-        pasanaku.deposit(gameId, amount);
+        deposit(PLAYER_1, gameId, amount);
 
         // check that the contract has `amount` number of tokens
         // and that the player has 0 tokens
@@ -199,8 +184,8 @@ contract PasanakuTest is Test {
 
     function test_deposit_RevertsWhenAmountIsLower() public {
         uint256 amount = 1 ether;
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
         vm.expectRevert(Pasanaku_InvalidAmount.selector);
@@ -209,8 +194,8 @@ contract PasanakuTest is Test {
 
     function test_deposit_RevertsWhenAmountIsHigher() public {
         uint256 amount = 1 ether;
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
         vm.expectRevert(Pasanaku_InvalidAmount.selector);
@@ -219,8 +204,8 @@ contract PasanakuTest is Test {
 
     function test_deposit_RevertsWhenSenderIsNotAPlayer() public {
         uint256 amount = 1 ether;
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
         vm.startPrank(NON_PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
         vm.expectRevert(Pasanaku_NotAPlayer.selector);
@@ -230,8 +215,7 @@ contract PasanakuTest is Test {
     function test_deposit_RevertsWhenGameEnded() public {
         // start the game
         uint256 amount = 1 ether;
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
         uint256 amountOfPeriods = players.length;
 
         // move the block.timestamp so that the game has ended
@@ -248,8 +232,7 @@ contract PasanakuTest is Test {
     function test_deposit_RevertsIfPlayerDepositedInCurrentPeriod() public {
         // start the game
         uint256 amount = 1 ether;
-        uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
-        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // mint tokens to player 1
         deal(address(erc20Contract), PLAYER_1, amount * 2);
@@ -262,5 +245,152 @@ contract PasanakuTest is Test {
         // try to deposit again
         vm.expectRevert(Pasanaku_AlreadyDepositedInCurrentPeriod.selector);
         pasanaku.deposit(gameId, amount);
+    }
+
+    function test_claimPrize_SendsFunds() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players
+        for (uint256 i = 0; i < players.length; i++) {
+            deal(address(erc20Contract), players[i], amount);
+            deposit(players[i], gameId, amount);
+        }
+
+        // move the block.timestamp so that the period has ended
+        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
+        vm.warp(finalTimestamp);
+
+        // claim the prize
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        vm.startPrank(winner);
+        pasanaku.claimPrize(gameId, period);
+        vm.stopPrank();
+
+        // check that the player has received the prize
+        uint256 feePercentage = pasanaku.getFee();
+        uint256 prize = amount * players.length;
+        uint256 protocolFee = (prize * feePercentage) / 100;
+        assertEq(erc20Contract.balanceOf(winner), prize - protocolFee);
+    }
+
+    function test_claimPrize_EmitsPrizeClaimed() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players
+        for (uint256 i = 0; i < players.length; i++) {
+            deal(address(erc20Contract), players[i], amount);
+            deposit(players[i], gameId, amount);
+        }
+
+        // move the block.timestamp so that the period has ended
+        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
+        vm.warp(finalTimestamp);
+
+        // claim the prize
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        uint256 feePercentage = pasanaku.getFee();
+        uint256 prize = amount * players.length;
+        uint256 protocolFee = (prize * feePercentage) / 100;
+
+        vm.expectEmit(true, true, true, true);
+        emit PrizeClaimed(gameId, winner, period, prize - protocolFee);
+        vm.startPrank(winner);
+        pasanaku.claimPrize(gameId, period);
+        vm.stopPrank();
+    }
+
+    function test_claimPrize_SetsPrizeBackToZero() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players
+        for (uint256 i = 0; i < players.length; i++) {
+            deal(address(erc20Contract), players[i], amount);
+            deposit(players[i], gameId, amount);
+        }
+
+        // move the block.timestamp so that the period has ended
+        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
+        vm.warp(finalTimestamp);
+
+        // claim the prize
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        vm.startPrank(winner);
+        pasanaku.claimPrize(gameId, period);
+        vm.stopPrank();
+
+        // check that the prize has been set back to zero
+        assertEq(pasanaku.getPrize(gameId, period), 0);
+    }
+
+    function test_claimPrize_RevertsWhenSenderIsNotTheWinner() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players
+        for (uint256 i = 0; i < players.length; i++) {
+            deal(address(erc20Contract), players[i], amount);
+            deposit(players[i], gameId, amount);
+        }
+
+        // move the block.timestamp so that the period has ended
+        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
+        vm.warp(finalTimestamp);
+
+        // try to claim the prize
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        address sender = players[0];
+        if (sender == winner) {
+            // If by coincidence we pick the winner as the sender, we pick the next player
+            sender = players[1];
+        }
+        vm.startPrank(sender);
+        vm.expectRevert(Pasanaku_IsNotPlayerTurnToWidthdraw.selector);
+        pasanaku.claimPrize(gameId, period);
+    }
+
+    function test_claimPrize_RevertsWhenNotAllPlayersHaveDeposited() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players but one
+        for (uint256 i = 0; i < players.length - 1; i++) {
+            deal(address(erc20Contract), players[i], amount);
+            deposit(players[i], gameId, amount);
+        }
+
+        // move the block.timestamp so that the period has ended
+        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
+        vm.warp(finalTimestamp);
+
+        // try to claim the prize
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        vm.startPrank(winner);
+        vm.expectRevert(Pasanaku_NotAllPlayersHaveDeposited.selector);
+        pasanaku.claimPrize(gameId, period);
+    }
+
+    /*
+    *  Helper functions
+    */
+
+    function startGameAndFulfillRandomWords(uint256 amount) internal returns (uint256 gameId) {
+        gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
+        vrfCoordinatorV2Mock.fulfillRandomWords(gameId, address(pasanaku));
+        return gameId;
+    }
+
+    function deposit(address player, uint256 gameId, uint256 amount) internal {
+        vm.startPrank(player);
+        erc20Contract.approve(address(pasanaku), amount);
+        pasanaku.deposit(gameId, amount);
+        vm.stopPrank();
     }
 }

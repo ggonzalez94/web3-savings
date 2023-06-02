@@ -147,11 +147,6 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     function claimPrize(uint256 gameId, uint256 period) external {
         Game storage game = _games[gameId];
 
-        // require the game to be ready
-        if (!game.ready) {
-            revert Pasanaku_GameNotReady();
-        }
-
         // require that it is actually the player's turn to withdraw on that period
         if (_turns[gameId][period].player != msg.sender) {
             revert Pasanaku_IsNotPlayerTurnToWidthdraw();
@@ -226,7 +221,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         game.ready = true;
     }
 
-    function getGame(uint256 gameId) external view returns (Game memory game) {
+    function getGame(uint256 gameId) external view returns (Game memory) {
         return _games[gameId];
     }
 
@@ -234,7 +229,15 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         return _players[gameId][player];
     }
 
-    function getPrize(uint256 gameId, uint256 period) external view returns (uint256 prize) {
+    function getPrize(uint256 gameId, uint256 period) external view returns (uint256) {
         return _turns[gameId][period].prize;
+    }
+
+    function getWinner(uint256 gameId, uint256 period) external view returns (address) {
+        return _turns[gameId][period].player;
+    }
+
+    function getFee() external pure returns (uint256) {
+        return FEE;
     }
 }
