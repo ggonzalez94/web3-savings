@@ -49,10 +49,18 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     bytes32 private immutable KEY_HASH; // Gas Lane
 
     mapping(uint256 id => Game game) private _games;
-    mapping(uint256 gameId => mapping(address playerAddress => Player player))
-        private _players; // we also use a mapping to easily query players
-    mapping(uint256 gameId => mapping(uint256 turnId => Turn turn))
-        private _turns; // Turn of each player
+    mapping(uint256 gameId => mapping(address playerAddress => Player player)) private _players; // we also use a mapping to easily query players
+    mapping(uint256 gameId => mapping(uint256 turnId => Turn turn)) private _turns; // Turn of each player
+
+    /**
+     *   EVENTS
+     */
+
+    event GameStarted(
+        uint256 indexed gameId, uint256 indexed frequency, address indexed token, uint256 amount, address[] players
+    );
+    event PlayerDeposited(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
+    event PrizeClaimed(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
 
     /**
      * @notice Constructor inherits VRFConsumerBaseV2
@@ -61,47 +69,31 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
      * @param vrfCoordinator - coordinator, check https://docs.chain.link/docs/vrf-contracts/#configurations
      * @param keyHash - the gas lane to use, which specifies the maximum gas price to bump to
      */
-    constructor(
-        uint64 subscriptionId,
-        address vrfCoordinator,
-        bytes32 keyHash
-    ) VRFConsumerBaseV2(vrfCoordinator) {
+    constructor(uint64 subscriptionId, address vrfCoordinator, bytes32 keyHash) VRFConsumerBaseV2(vrfCoordinator) {
         SUBSCRIPTION_ID = subscriptionId;
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         KEY_HASH = keyHash;
     }
 
     // starts a new game
-    function start(
-        uint256 frequency,
-        uint256 amount,
-        address[] memory players,
-        address token
-    ) external returns (uint256 requestId) {
+    function start(uint256 frequency, uint256 amount, address[] memory players, address token)
+        external
+        returns (uint256 requestId)
+    {
         if (frequency == 0) {
             revert Pasanaku_InvalidFrequency();
         }
         // request a random number - we will use this to decide the order of the players and as a gameId
         requestId = COORDINATOR.requestRandomWords(
-            KEY_HASH,
-            SUBSCRIPTION_ID,
-            REQUEST_CONFIRMATIONS,
-            CALLBACK_GAS_LIMIT,
-            NUM_WORDS
+            KEY_HASH, SUBSCRIPTION_ID, REQUEST_CONFIRMATIONS, CALLBACK_GAS_LIMIT, NUM_WORDS
         );
         // create game
-        _games[requestId] = Game(
-            block.timestamp,
-            frequency,
-            amount,
-            token,
-            players,
-            false
-        );
+        _games[requestId] = Game(block.timestamp, frequency, amount, token, players, false);
         // add players to the game
         for (uint256 i = 0; i < players.length; i++) {
             _players[requestId][players[i]] = Player(true, 0);
         }
+        emit GameStarted(requestId, frequency, token, amount, players);
     }
 
     function deposit(uint256 gameId, uint256 amount) external {
@@ -125,8 +117,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         }
 
         //revert if we are outside the current period
-        uint256 currentPeriod = (block.timestamp - game.startDate) /
-            game.frequency;
+        uint256 currentPeriod = (block.timestamp - game.startDate) / game.frequency;
 
         //TODO: revert if the game has finished(currentPeriod >= amount of players)
         if (currentPeriod >= game.players.length) {
@@ -136,8 +127,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         //revert if player has already played in the current period
         bool hasPlayedInCurrentPeriod;
         if (player.lastPlayed > 0) {
-            uint256 lastPlayedPeriod = (player.lastPlayed - game.startDate) /
-                game.frequency;
+            uint256 lastPlayedPeriod = (player.lastPlayed - game.startDate) / game.frequency;
             hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod; //lastPlayedPeriod should never be greater than current period, at most equal
         }
         if (hasPlayedInCurrentPeriod) {
@@ -149,11 +139,10 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         _turns[gameId][currentPeriod].prize += gameAmount;
 
         // transfer tokens
-        IERC20(game.token).safeTransferFrom(
-            msg.sender,
-            address(this),
-            gameAmount
-        );
+        IERC20(game.token).safeTransferFrom(msg.sender, address(this), gameAmount);
+
+        //emit event
+        emit PlayerDeposited(gameId, msg.sender, currentPeriod, amount);
     }
 
     function claimPrize(uint256 gameId, uint256 period) external {
@@ -184,6 +173,9 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // transfer the tokens to the player
         IERC20(game.token).safeTransfer(msg.sender, prize);
+
+        // emit event
+        emit PrizeClaimed(gameId, msg.sender, period, prize);
     }
 
     // Withdraws the full balance of the list of tokens
@@ -195,10 +187,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         }
     }
 
-    function _isPlayer(
-        uint256 game,
-        address player
-    ) internal view returns (bool isPlaying) {
+    function _isPlayer(uint256 game, address player) internal view returns (bool isPlaying) {
         isPlaying = _players[game][player].isPlaying;
     }
 
@@ -208,10 +197,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
      * @param requestId - id of the request
      * @param randomWords - array of random results from VRF Coordinator
      */
-    function fulfillRandomWords(
-        uint256 requestId,
-        uint256[] memory randomWords
-    ) internal override {
+    function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
         uint256 word = randomWords[0];
         Game storage game = _games[requestId];
         uint256 numberOfPlayers = game.players.length;
@@ -220,7 +206,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         // create en empty array with the turn of the players
         // TODO: maybe using push is more gas efficient??
         uint256[] memory playerIndexes = new uint256[](numberOfPlayers);
-        for (uint i = 0; i < numberOfPlayers; i++) {
+        for (uint256 i = 0; i < numberOfPlayers; i++) {
             playerIndexes[i] = i;
         }
 
@@ -229,10 +215,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             uint256 j = word % (i + 1);
             word /= 10;
             // Swap playerIndexes[i] and playerIndexes[j]
-            (playerIndexes[i], playerIndexes[j]) = (
-                playerIndexes[j],
-                playerIndexes[i]
-            );
+            (playerIndexes[i], playerIndexes[j]) = (playerIndexes[j], playerIndexes[i]);
         }
 
         // Set the turn order in the _turns mapping
@@ -248,10 +231,11 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         return _games[gameId];
     }
 
-    function getPlayer(
-        uint256 gameId,
-        address player
-    ) external view returns (Player memory) {
+    function getPlayer(uint256 gameId, address player) external view returns (Player memory) {
         return _players[gameId][player];
+    }
+
+    function getPrize(uint256 gameId, uint256 period) external view returns (uint256 prize) {
+        return _turns[gameId][period].prize;
     }
 }
