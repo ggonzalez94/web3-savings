@@ -51,6 +51,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     mapping(uint256 id => Game game) private _games;
     mapping(uint256 gameId => mapping(address playerAddress => Player player)) private _players; // we also use a mapping to easily query players
     mapping(uint256 gameId => mapping(uint256 turnId => Turn turn)) private _turns; // Turn of each player
+    mapping(address token => uint256 balance) private _revenue; // revenue balance for each token
 
     /**
      *   EVENTS
@@ -161,9 +162,12 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         // mark the period as completed by putting the prize back to zero
         _turns[gameId][period].prize = 0;
 
-        // reserver a FEE % of the prize for the protocol
+        // reserve a FEE % of the prize for the protocol
         uint256 protocolFee = (prize * FEE) / 100;
         prize -= protocolFee;
+
+        // increase the balance for the fee
+        _revenue[game.token] += protocolFee;
 
         // transfer the tokens to the player
         IERC20(game.token).safeTransfer(msg.sender, prize);
@@ -175,8 +179,13 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     // Withdraws the full balance of the list of tokens
     function withdrawRevenue(address[] memory tokens) external onlyOwner {
         for (uint256 i = 0; i < tokens.length; i++) {
+            // get the accumulated balance for the token
+            uint256 balance = _revenue[tokens[i]];
+            // reset the balance
+            _revenue[tokens[i]] = 0;
+
+            // transfer the tokens to the owner
             IERC20 token = IERC20(tokens[i]);
-            uint256 balance = token.balanceOf(address(this));
             token.safeTransfer(owner(), balance);
         }
     }
@@ -239,5 +248,9 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
     function getFee() external pure returns (uint256) {
         return FEE;
+    }
+
+    function getRevenue(address token) external view returns (uint256) {
+        return _revenue[token];
     }
 }

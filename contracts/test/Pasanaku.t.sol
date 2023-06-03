@@ -46,7 +46,14 @@ contract PasanakuTest is Test {
     event PrizeClaimed(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
 
     function setUp() public {
-        erc20Contract = new ERC20("Mck", "Mock");
+        if (block.chainid == 42161) {
+            // Arbitrum one fork
+            erc20Contract = ERC20(0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8); //usdc
+                // TODO: Use the VRFCoordinator on arbitrum instead of the mock
+        } else {
+            // Local chain
+            erc20Contract = new ERC20("Mck", "Mock");
+        }
 
         // Values taken from this repo https://github.com/PatrickAlphaC/foundry-smart-contract-lottery-f23/blob/main/script/HelperConfig.s.sol#LL78C9-L79C35
         // Does it really matter?
@@ -254,14 +261,10 @@ contract PasanakuTest is Test {
         uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // deposit tokens to the game for all players
-        for (uint256 i = 0; i < players.length; i++) {
-            deal(address(erc20Contract), players[i], amount);
-            deposit(players[i], gameId, amount);
-        }
+        depositForAllPlayers(gameId, amount);
 
         // move the block.timestamp so that the period has ended
-        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
-        vm.warp(finalTimestamp);
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
 
         // claim the prize
         uint256 period = 0;
@@ -282,14 +285,10 @@ contract PasanakuTest is Test {
         uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // deposit tokens to the game for all players
-        for (uint256 i = 0; i < players.length; i++) {
-            deal(address(erc20Contract), players[i], amount);
-            deposit(players[i], gameId, amount);
-        }
+        depositForAllPlayers(gameId, amount);
 
         // move the block.timestamp so that the period has ended
-        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
-        vm.warp(finalTimestamp);
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
 
         // claim the prize
         uint256 period = 0;
@@ -310,14 +309,10 @@ contract PasanakuTest is Test {
         uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // deposit tokens to the game for all players
-        for (uint256 i = 0; i < players.length; i++) {
-            deal(address(erc20Contract), players[i], amount);
-            deposit(players[i], gameId, amount);
-        }
+        depositForAllPlayers(gameId, amount);
 
         // move the block.timestamp so that the period has ended
-        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
-        vm.warp(finalTimestamp);
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
 
         // claim the prize
         uint256 period = 0;
@@ -335,14 +330,10 @@ contract PasanakuTest is Test {
         uint256 gameId = startGameAndFulfillRandomWords(amount);
 
         // deposit tokens to the game for all players
-        for (uint256 i = 0; i < players.length; i++) {
-            deal(address(erc20Contract), players[i], amount);
-            deposit(players[i], gameId, amount);
-        }
+        depositForAllPlayers(gameId, amount);
 
         // move the block.timestamp so that the period has ended
-        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
-        vm.warp(finalTimestamp);
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
 
         // try to claim the prize
         uint256 period = 0;
@@ -368,8 +359,7 @@ contract PasanakuTest is Test {
         }
 
         // move the block.timestamp so that the period has ended
-        uint256 finalTimestamp = block.timestamp + ONE_MONTH_INTERVAL;
-        vm.warp(finalTimestamp);
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
 
         // try to claim the prize
         uint256 period = 0;
@@ -377,6 +367,72 @@ contract PasanakuTest is Test {
         vm.startPrank(winner);
         vm.expectRevert(Pasanaku_NotAllPlayersHaveDeposited.selector);
         pasanaku.claimPrize(gameId, period);
+    }
+
+    function test_withdrawRevenue_SendsFundsForOneToken() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players
+        depositForAllPlayers(gameId, amount);
+
+        // move the block.timestamp so that the period has ended
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
+
+        // claim prize - generating revenue for the protocol
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        vm.startPrank(winner);
+        pasanaku.claimPrize(gameId, period);
+        vm.stopPrank();
+
+        // withdraw revenue
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(erc20Contract);
+        pasanaku.withdrawRevenue(tokens);
+
+        // check the balance of the owner
+        uint256 feePercentage = pasanaku.getFee();
+        uint256 prize = amount * players.length;
+        uint256 protocolFee = (prize * feePercentage) / 100;
+        assertEq(erc20Contract.balanceOf(address(this)), protocolFee);
+    }
+
+    function test_withdrawRevenue_SetsRevenueBackToZero() public {
+        uint256 amount = 1 ether;
+        uint256 gameId = startGameAndFulfillRandomWords(amount);
+
+        // deposit tokens to the game for all players
+        depositForAllPlayers(gameId, amount);
+
+        // move the block.timestamp so that the period has ended
+        endCurrentPeriod(ONE_MONTH_INTERVAL);
+
+        // claim prize - generating revenue for the protocol
+        uint256 period = 0;
+        address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
+        vm.startPrank(winner);
+        pasanaku.claimPrize(gameId, period);
+        vm.stopPrank();
+
+        // withdraw revenue
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(erc20Contract);
+        pasanaku.withdrawRevenue(tokens);
+
+        // check that the revenue has been set back to zero
+        assertEq(pasanaku.getRevenue(address(erc20Contract)), 0);
+    }
+
+    function testFuzz_withdrawRevenue_RevertsIfNotOwner(address sender) public {
+        // discard the run for the owner
+        vm.assume(sender != address(this));
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(erc20Contract);
+        vm.startPrank(sender);
+        vm.expectRevert("Ownable: caller is not the owner");
+        pasanaku.withdrawRevenue(tokens);
     }
 
     /*
@@ -394,5 +450,19 @@ contract PasanakuTest is Test {
         erc20Contract.approve(address(pasanaku), amount);
         pasanaku.deposit(gameId, amount);
         vm.stopPrank();
+    }
+
+    function depositForAllPlayers(uint256 gameId, uint256 amount) internal {
+        // deposit tokens to the game for all players
+        for (uint256 i = 0; i < players.length; i++) {
+            deal(address(erc20Contract), players[i], amount);
+            deposit(players[i], gameId, amount);
+        }
+    }
+
+    function endCurrentPeriod(uint256 interval) internal {
+        // move the block.timestamp so that the period has ended
+        uint256 finalTimestamp = block.timestamp + interval;
+        vm.warp(finalTimestamp);
     }
 }
