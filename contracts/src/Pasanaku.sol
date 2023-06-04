@@ -25,8 +25,8 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 frequency; //should we set a min and max cap on the frequency to avoid periods being super short or super long?
         uint256 amount; // to be deposited every period
         address token; //should we have a set of allowed tokens?
-        address[] players; // the players of the game. The order of the players is decided by a random number
         bool ready; // true if the random number has been generated
+        address[] players; // the players of the game. The order of the players is decided by a random number
     }
 
     struct Player {
@@ -89,7 +89,14 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             KEY_HASH, SUBSCRIPTION_ID, REQUEST_CONFIRMATIONS, CALLBACK_GAS_LIMIT, NUM_WORDS
         );
         // create game
-        _games[requestId] = Game(block.timestamp, frequency, amount, token, players, false);
+        _games[requestId] = Game({
+            startDate: block.timestamp,
+            frequency: frequency,
+            amount: amount,
+            token: token,
+            ready: false,
+            players: players
+        });
         // add players to the game
         for (uint256 i = 0; i < players.length; i++) {
             _players[requestId][players[i]] = Player(true, 0);
