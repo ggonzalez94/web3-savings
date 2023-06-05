@@ -7,8 +7,10 @@ import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol"
 import {VRFCoordinatorV2Interface} from "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "chainlink/v0.8/VRFConsumerBaseV2.sol";
 
-//TODO: Put a better explanation of Pasanaku, potentially with some links and references to the origins.
 /// @title Pasanaku Contract
+/// Pasanaku is a traditional community savings system, particularly popular in Bolivia and Peru operating on the principle of rotating credit and savings.
+/// Members contribute a set amount of money at regular intervals, creating a fund which is given as a lump sum to one member per cycle.
+/// This blockchain-based version of Pasanaku ensures a transparent, secure, and efficient distribution of funds among participants, while respecting the tradition's mutual support ethos.
 /// @notice This contract represents a game where players deposit a set amount in regular intervals. At the end of each period, one of the players gets to claim the accumulated prize.
 contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     using SafeERC20 for IERC20;
@@ -130,6 +132,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     }
 
     /// @notice Allows a player to make their deposit for the current period. Only registered players to the game can make deposits and only once per period
+    /// @notice The player must approve the contract to spend the amount of the deposit before calling this function
     /// @param gameId The id of the game
     /// @param amount The amount to deposit, which must be equal to the game amount
     function deposit(uint256 gameId, uint256 amount) external {
@@ -292,7 +295,6 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         address[] memory players = game.players;
 
         // Create en empty array with the turn of the players
-        // TODO: maybe using push is more gas efficient??
         uint256[] memory playerIndexes = new uint256[](numberOfPlayers);
         for (uint256 i = 0; i < numberOfPlayers; i++) {
             playerIndexes[i] = i;

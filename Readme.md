@@ -1,1 +1,7 @@
-# Web3 Savings
+# Web3 Savings [WIP]
+
+A colletion of saving smart contracts designed to incentivize savings and collaboration.
+
+-   Pasanaku, originating from the indigenous culture of the Andean regions, particularly Bolivia and Peru, is a community-based rotational savings and credit system known as a "saving circle". Traditionally, in this game, a group of people contributes a fixed amount of money at regular intervals into a communal fund, and at each interval, one member of the group takes the entire sum. The order in which participants receive the fund is determined at the start of the game, often by a random method such as a lottery. The game continues until all players have received the fund once. Pasanaku is an age-old tradition that has been used to facilitate community savings and micro-financing among friends, family, and neighbors.
+
+In this [smart contract](./contracts/src/Pasanaku.sol) version of Pasanaku, the game keeps to the traditional roots but adds the power of blockchain technology and the security of smart contracts. Players deposit a specific token into the contract at set intervals. Once all players have deposited for a given period, the player whose turn it is can claim the prize for that period. The order of play is determined randomly through Chainlink's VRF (Verifiable Random Function), ensuring a fair and transparent random ordering. This smart contract system encapsulates the spirit of communal financial support and trust from the traditional Pasanaku game, providing a decentralized, transparent and trustless means of mutual saving and credit on the blockchain.
