@@ -99,11 +99,11 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         if (frequency == 0) {
             revert Pasanaku__InvalidFrequency();
         }
-        // request a random number - we will use this to decide the order of the players and as a gameId
+        // Request a random number - we will use this to decide the order of the players and as a gameId
         requestId = COORDINATOR.requestRandomWords(
             KEY_HASH, SUBSCRIPTION_ID, REQUEST_CONFIRMATIONS, CALLBACK_GAS_LIMIT, NUM_WORDS
         );
-        // create game
+        // Create game
         _games[requestId] = Game({
             startDate: block.timestamp,
             frequency: frequency,
@@ -112,7 +112,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             ready: false,
             players: players
         });
-        // add players to the game
+        // Add players to the game
         for (uint256 i = 0; i < players.length; i++) {
             _players[requestId][players[i]] = Player(true, 0);
         }
@@ -122,91 +122,95 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     function deposit(uint256 gameId, uint256 amount) external {
         Game storage game = _games[gameId];
         Player storage player = _players[gameId][msg.sender];
-        uint256 gameAmount = game.amount; //avoid reading multiple times from storage
+        uint256 gameAmount = game.amount;
 
-        // require the game to be ready
+        // Require the game to be ready
         if (!game.ready) {
             revert Pasanaku__GameNotReady();
         }
 
-        //revert if amount is not equal to the amount set for the game
+        // Revert if amount is not equal to the amount set for the game
         if (amount != gameAmount) {
             revert Pasanaku__InvalidAmount();
         }
 
-        //revert if msg.sender is not part of the players array
+        // Revert if msg.sender is not part of the players array
         if (!player.isPlaying) {
             revert Pasanaku__NotAPlayer();
         }
 
-        uint256 currentPeriod = (block.timestamp - game.startDate) / game.frequency;
+        uint256 startDate = game.startDate;
+        uint256 frequency = game.frequency;
+        uint256 currentPeriod = (block.timestamp - startDate) / frequency;
 
-        //TODO: revert if the game has finished(currentPeriod >= amount of players)
+        // Revert if the game has ended
         if (currentPeriod >= game.players.length) {
             revert Pasanaku__GameEnded();
         }
 
-        //revert if player has already played in the current period
+        // Revert if player has already played in the current period
         bool hasPlayedInCurrentPeriod;
-        if (player.lastPlayed > 0) {
-            uint256 lastPlayedPeriod = (player.lastPlayed - game.startDate) / game.frequency;
+        uint256 lastPlayed = player.lastPlayed;
+        if (lastPlayed > 0) {
+            uint256 lastPlayedPeriod = (lastPlayed - startDate) / frequency;
             hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod; //lastPlayedPeriod should never be greater than current period, at most equal
         }
         if (hasPlayedInCurrentPeriod) {
             revert Pasanaku__AlreadyDepositedInCurrentPeriod();
         }
 
-        // update state
+        // Update state
         player.lastPlayed = block.timestamp;
         _turns[gameId][currentPeriod].prize += gameAmount;
 
-        // transfer tokens
+        // Transfer tokens
         IERC20(game.token).safeTransferFrom(msg.sender, address(this), gameAmount);
 
-        //emit event
+        // Emit event
         emit PlayerDeposited(gameId, msg.sender, currentPeriod, amount);
     }
 
     function claimPrize(uint256 gameId, uint256 period) external {
         Game storage game = _games[gameId];
+        address tokenAddress = game.token;
 
-        // require that it is actually the player's turn to withdraw on that period
+        // Require that it is actually the player's turn to withdraw on that period
         if (_turns[gameId][period].player != msg.sender) {
             revert Pasanaku__IsNotPlayerTurnToWidthdraw();
         }
 
-        // require that all players have deposited for the withdraw period
+        // Require that all players have deposited for the withdraw period
         uint256 prize = _turns[gameId][period].prize;
         if (prize < game.amount * game.players.length) {
-            //prize should be always equal to game.amount * game.players.length if all players have played
+            // Prize should be always equal to game.amount * game.players.length if all players have played
             revert Pasanaku__NotAllPlayersHaveDeposited();
         }
-        // mark the period as completed by putting the prize back to zero
+        // Mark the period as completed by putting the prize back to zero
         _turns[gameId][period].prize = 0;
 
-        // reserve a FEE % of the prize for the protocol
+        // Reserve a FEE % of the prize for the protocol
         uint256 protocolFee = (prize * FEE) / 100;
         prize -= protocolFee;
 
-        // increase the balance for the fee
-        _revenue[game.token] += protocolFee;
+        // Increase the balance for the fee
+        _revenue[tokenAddress] += protocolFee;
 
-        // transfer the tokens to the player
-        IERC20(game.token).safeTransfer(msg.sender, prize);
+        // Transfer the tokens to the player
+        IERC20(tokenAddress).safeTransfer(msg.sender, prize);
 
-        // emit event
+        // Emit event
         emit PrizeClaimed(gameId, msg.sender, period, prize);
     }
 
     // Withdraws the full balance of the list of tokens
     function withdrawRevenue(address[] calldata tokens) external onlyOwner {
         for (uint256 i = 0; i < tokens.length; i++) {
-            // get the accumulated balance for the token
+            // Get the accumulated balance for the token
             uint256 balance = _revenue[tokens[i]];
-            // reset the balance
+            // Reset the balance
             _revenue[tokens[i]] = 0;
 
-            // transfer the tokens to the owner
+            // Transfer the tokens to the owner
             IERC20 token = IERC20(tokens[i]);
             token.safeTransfer(owner(), balance);
         }
@@ -252,7 +256,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 numberOfPlayers = game.players.length;
         address[] memory players = game.players;
 
-        // create en empty array with the turn of the players
+        // Create en empty array with the turn of the players
         // TODO: maybe using push is more gas efficient??
         uint256[] memory playerIndexes = new uint256[](numberOfPlayers);
         for (uint256 i = 0; i < numberOfPlayers; i++) {
