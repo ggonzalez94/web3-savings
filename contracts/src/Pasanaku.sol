@@ -7,6 +7,9 @@ import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol"
 import {VRFCoordinatorV2Interface} from "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "chainlink/v0.8/VRFConsumerBaseV2.sol";
 
+//TODO: Put a better explanation of Pasanaku, potentially with some links and references to the origins.
+/// @title Pasanaku Contract
+/// @notice This contract represents a game where players deposit a set amount in regular intervals. At the end of each period, one of the players gets to claim the accumulated prize.
 contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     using SafeERC20 for IERC20;
 
@@ -91,20 +94,27 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     // External Functions
     ///////////////////////
 
-    // starts a new game
+    /// @notice Starts a new game with the given parameters
+    /// @dev When the game starts it requests a random number from the Chainlink VRF
+    /// @dev The game starts as not ready, and it will be ready once the random number is generated. The Chainlink VRF will call the `fulfillRandomness` function
+    /// @param frequency The time period in which each player has to make their deposit
+    /// @param amount The amount that each player has to deposit every period
+    /// @param players The addresses of the players
+    /// @param token The token to be used for deposits
+    /// @return gameId The id of the game
     function start(uint256 frequency, uint256 amount, address[] calldata players, address token)
         external
-        returns (uint256 requestId)
+        returns (uint256 gameId)
     {
         if (frequency == 0) {
             revert Pasanaku__InvalidFrequency();
         }
         // Request a random number - we will use this to decide the order of the players and as a gameId
-        requestId = COORDINATOR.requestRandomWords(
+        gameId = COORDINATOR.requestRandomWords(
             KEY_HASH, SUBSCRIPTION_ID, REQUEST_CONFIRMATIONS, CALLBACK_GAS_LIMIT, NUM_WORDS
         );
         // Create game
-        _games[requestId] = Game({
+        _games[gameId] = Game({
             startDate: block.timestamp,
             frequency: frequency,
             amount: amount,
@@ -114,11 +124,14 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         });
         // Add players to the game
         for (uint256 i = 0; i < players.length; i++) {
-            _players[requestId][players[i]] = Player(true, 0);
+            _players[gameId][players[i]] = Player(true, 0);
         }
-        emit GameStarted(requestId, frequency, token, amount, players);
+        emit GameStarted(gameId, frequency, token, amount, players);
     }
 
+    /// @notice Allows a player to make their deposit for the current period. Only registered players to the game can make deposits and only once per period
+    /// @param gameId The id of the game
+    /// @param amount The amount to deposit, which must be equal to the game amount
     function deposit(uint256 gameId, uint256 amount) external {
         Game storage game = _games[gameId];
         Player storage player = _players[gameId][msg.sender];
@@ -170,6 +183,10 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         emit PlayerDeposited(gameId, msg.sender, currentPeriod, amount);
     }
 
+    /// @notice Allows the player whose turn it is to claim the prize for a period
+    /// @dev You can claim prizes for previous periods as long as all players have deposited for that period
+    /// @param gameId The id of the game
+    /// @param period The period for which the player is claiming the prize
     function claimPrize(uint256 gameId, uint256 period) external {
         Game storage game = _games[gameId];
         address tokenAddress = game.token;
@@ -202,7 +219,8 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         emit PrizeClaimed(gameId, msg.sender, period, prize);
     }
 
-    // Withdraws the full balance of the list of tokens
+    /// @notice Allows the owner to withdraw the revenue for a list of tokens
+    /// @param tokens The tokens for which to withdraw the revenue
     function withdrawRevenue(address[] calldata tokens) external onlyOwner {
         for (uint256 i = 0; i < tokens.length; i++) {
             // Get the accumulated balance for the token
@@ -216,26 +234,46 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         }
     }
 
+    /// @notice Fetches the details of a game
+    /// @param gameId The id of the game
+    /// @return A Game struct with all the details of the game
     function getGame(uint256 gameId) external view returns (Game memory) {
         return _games[gameId];
     }
 
+    /// @notice Fetches the details of a player in a game
+    /// @param gameId The id of the game
+    /// @param player The address of the player
+    /// @return A Player struct with the details of the player in the game
     function getPlayer(uint256 gameId, address player) external view returns (Player memory) {
         return _players[gameId][player];
     }
 
+    /// @notice Fetches the prize for a given period in a game
+    /// @param gameId The id of the game
+    /// @param period The period for which to fetch the prize. Periods start at 0
+    /// @return The prize for the given period in the game
     function getPrize(uint256 gameId, uint256 period) external view returns (uint256) {
         return _turns[gameId][period].prize;
     }
 
+    /// @notice Fetches the winner for a given period in a game
+    /// @param gameId The id of the game
+    /// @param period The period for which to fetch the winner
+    /// @return The address of the player who is the winner for the given period in the game
     function getWinner(uint256 gameId, uint256 period) external view returns (address) {
         return _turns[gameId][period].player;
     }
 
+    /// @notice Fetches the protocol fee
+    /// @return The protocol fee as a percentage
     function getFee() external pure returns (uint256) {
         return FEE;
     }
 
+    /// @notice Fetches the protocol revenue for a given token
+    /// @param token The address of the token
+    /// @return The revenue for the given token
     function getRevenue(address token) external view returns (uint256) {
         return _revenue[token];
     }
@@ -244,12 +282,9 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     // Internal Functions
     ///////////////////////
 
-    /**
-     * @notice Callback function used by VRF Coordinator. Here we use the random number to decide the order of the players
-     *
-     * @param requestId - id of the request
-     * @param randomWords - array of random results from VRF Coordinator
-     */
+    /// @notice Callback function used by VRF Coordinator to provide a random number.We use the random number to decide the order of the players
+    /// @param requestId The id of the request that was obained when calling `requestRandomWords`
+    /// @param randomWords The random number provided by the VRF Coordinator
     function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
         uint256 word = randomWords[0];
         Game storage game = _games[requestId];
