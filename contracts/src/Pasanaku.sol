@@ -7,19 +7,12 @@ import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol"
 import {VRFCoordinatorV2Interface} from "chainlink/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "chainlink/v0.8/VRFConsumerBaseV2.sol";
 
-error Pasanaku_InvalidFrequency();
-error Pasanaku_GameNotReady();
-error Pasanaku_GameEnded();
-error Pasanaku_NotAPlayer();
-error Pasanaku_AlreadyDepositedInCurrentPeriod();
-error Pasanaku_InvalidAmount();
-error Pasanaku_NotAllPlayersHaveDeposited();
-error Pasanaku_IsNotPlayerTurnToWidthdraw();
-
 contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     using SafeERC20 for IERC20;
 
-    //TODO: optimize storage by packing variables where possible
+    ///////////////////
+    // Types
+    ///////////////////
     struct Game {
         uint256 startDate; // the time when the game started
         uint256 frequency; //should we set a min and max cap on the frequency to avoid periods being super short or super long?
@@ -40,6 +33,9 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 prize; // accumulated prize for that turn
     }
 
+    ///////////////////
+    // State Variables
+    ///////////////////
     uint16 private constant REQUEST_CONFIRMATIONS = 3; // 3 is the minimum number of request confirmations in most chains
     uint32 private constant CALLBACK_GAS_LIMIT = 1000000; //TODO: adjust based on gas reports on the fallback function
     uint32 private constant NUM_WORDS = 1; // we only need one random number
@@ -50,18 +46,33 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
     mapping(uint256 id => Game game) private _games;
     mapping(uint256 gameId => mapping(address playerAddress => Player player)) private _players; // we also use a mapping to easily query players
-    mapping(uint256 gameId => mapping(uint256 turnId => Turn turn)) private _turns; // Turn of each player
+    mapping(uint256 gameId => mapping(uint256 turnId => Turn turn)) private _turns; // Turn for claming the prize of each player
     mapping(address token => uint256 balance) private _revenue; // revenue balance for each token
 
-    /**
-     *   EVENTS
-     */
-
+    ///////////////////
+    // Events
+    ///////////////////
     event GameStarted(
         uint256 indexed gameId, uint256 indexed frequency, address indexed token, uint256 amount, address[] players
     );
     event PlayerDeposited(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
     event PrizeClaimed(uint256 indexed gameId, address indexed player, uint256 indexed period, uint256 amount);
+
+    ///////////////////
+    // Custom Errors
+    ///////////////////
+    error Pasanaku__InvalidFrequency();
+    error Pasanaku__GameNotReady();
+    error Pasanaku__GameEnded();
+    error Pasanaku__NotAPlayer();
+    error Pasanaku__AlreadyDepositedInCurrentPeriod();
+    error Pasanaku__InvalidAmount();
+    error Pasanaku__NotAllPlayersHaveDeposited();
+    error Pasanaku__IsNotPlayerTurnToWidthdraw();
+
+    ///////////////////
+    // Functions
+    ///////////////////
 
     /**
      * @notice Constructor inherits VRFConsumerBaseV2
@@ -76,13 +87,17 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         KEY_HASH = keyHash;
     }
 
+    ///////////////////////
+    // External Functions
+    ///////////////////////
+
     // starts a new game
-    function start(uint256 frequency, uint256 amount, address[] memory players, address token)
+    function start(uint256 frequency, uint256 amount, address[] calldata players, address token)
         external
         returns (uint256 requestId)
     {
         if (frequency == 0) {
-            revert Pasanaku_InvalidFrequency();
+            revert Pasanaku__InvalidFrequency();
         }
         // request a random number - we will use this to decide the order of the players and as a gameId
         requestId = COORDINATOR.requestRandomWords(
@@ -111,24 +126,24 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // require the game to be ready
         if (!game.ready) {
-            revert Pasanaku_GameNotReady();
+            revert Pasanaku__GameNotReady();
         }
 
         //revert if amount is not equal to the amount set for the game
         if (amount != gameAmount) {
-            revert Pasanaku_InvalidAmount();
+            revert Pasanaku__InvalidAmount();
         }
 
         //revert if msg.sender is not part of the players array
-        if (!_isPlayer(gameId, msg.sender)) {
-            revert Pasanaku_NotAPlayer();
+        if (!player.isPlaying) {
+            revert Pasanaku__NotAPlayer();
         }
 
         uint256 currentPeriod = (block.timestamp - game.startDate) / game.frequency;
 
         //TODO: revert if the game has finished(currentPeriod >= amount of players)
         if (currentPeriod >= game.players.length) {
-            revert Pasanaku_GameEnded();
+            revert Pasanaku__GameEnded();
         }
 
         //revert if player has already played in the current period
@@ -138,7 +153,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
             hasPlayedInCurrentPeriod = currentPeriod <= lastPlayedPeriod; //lastPlayedPeriod should never be greater than current period, at most equal
         }
         if (hasPlayedInCurrentPeriod) {
-            revert Pasanaku_AlreadyDepositedInCurrentPeriod();
+            revert Pasanaku__AlreadyDepositedInCurrentPeriod();
         }
 
         // update state
@@ -157,14 +172,14 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // require that it is actually the player's turn to withdraw on that period
         if (_turns[gameId][period].player != msg.sender) {
-            revert Pasanaku_IsNotPlayerTurnToWidthdraw();
+            revert Pasanaku__IsNotPlayerTurnToWidthdraw();
         }
 
         // require that all players have deposited for the withdraw period
         uint256 prize = _turns[gameId][period].prize;
         if (prize < game.amount * game.players.length) {
             //prize should be always equal to game.amount * game.players.length if all players have played
-            revert Pasanaku_NotAllPlayersHaveDeposited();
+            revert Pasanaku__NotAllPlayersHaveDeposited();
         }
         // mark the period as completed by putting the prize back to zero
         _turns[gameId][period].prize = 0;
@@ -184,7 +199,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     }
 
     // Withdraws the full balance of the list of tokens
-    function withdrawRevenue(address[] memory tokens) external onlyOwner {
+    function withdrawRevenue(address[] calldata tokens) external onlyOwner {
         for (uint256 i = 0; i < tokens.length; i++) {
             // get the accumulated balance for the token
             uint256 balance = _revenue[tokens[i]];
@@ -197,9 +212,33 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         }
     }
 
-    function _isPlayer(uint256 game, address player) internal view returns (bool isPlaying) {
-        isPlaying = _players[game][player].isPlaying;
+    function getGame(uint256 gameId) external view returns (Game memory) {
+        return _games[gameId];
     }
+
+    function getPlayer(uint256 gameId, address player) external view returns (Player memory) {
+        return _players[gameId][player];
+    }
+
+    function getPrize(uint256 gameId, uint256 period) external view returns (uint256) {
+        return _turns[gameId][period].prize;
+    }
+
+    function getWinner(uint256 gameId, uint256 period) external view returns (address) {
+        return _turns[gameId][period].player;
+    }
+
+    function getFee() external pure returns (uint256) {
+        return FEE;
+    }
+
+    function getRevenue(address token) external view returns (uint256) {
+        return _revenue[token];
+    }
+
+    ///////////////////////
+    // Internal Functions
+    ///////////////////////
 
     /**
      * @notice Callback function used by VRF Coordinator. Here we use the random number to decide the order of the players
@@ -235,29 +274,5 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
 
         // Now we are ready to start the game
         game.ready = true;
-    }
-
-    function getGame(uint256 gameId) external view returns (Game memory) {
-        return _games[gameId];
-    }
-
-    function getPlayer(uint256 gameId, address player) external view returns (Player memory) {
-        return _players[gameId][player];
-    }
-
-    function getPrize(uint256 gameId, uint256 period) external view returns (uint256) {
-        return _turns[gameId][period].prize;
-    }
-
-    function getWinner(uint256 gameId, uint256 period) external view returns (address) {
-        return _turns[gameId][period].player;
-    }
-
-    function getFee() external pure returns (uint256) {
-        return FEE;
-    }
-
-    function getRevenue(address token) external view returns (uint256) {
-        return _revenue[token];
     }
 }

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
-import "../src/Pasanaku.sol";
+import {Pasanaku} from "../src/Pasanaku.sol";
 import {ERC20} from "openzeppelin-contracts/token/ERC20/ERC20.sol";
 import {VRFCoordinatorV2Mock} from "chainlink/v0.8/mocks/VRFCoordinatorV2Mock.sol";
 
@@ -97,7 +97,7 @@ contract PasanakuTest is Test {
     }
 
     function test_start_RevertIfFrequencyIsZero() public {
-        vm.expectRevert(Pasanaku_InvalidFrequency.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__InvalidFrequency.selector);
         pasanaku.start(0, 1e6, players, address(erc20Contract));
     }
 
@@ -187,7 +187,7 @@ contract PasanakuTest is Test {
         uint256 gameId = pasanaku.start(ONE_MONTH_INTERVAL, amount, players, address(erc20Contract));
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
-        vm.expectRevert(Pasanaku_GameNotReady.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__GameNotReady.selector);
         pasanaku.deposit(gameId, amount);
     }
 
@@ -197,7 +197,7 @@ contract PasanakuTest is Test {
 
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
-        vm.expectRevert(Pasanaku_InvalidAmount.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__InvalidAmount.selector);
         pasanaku.deposit(gameId, amount - 1);
     }
 
@@ -207,7 +207,7 @@ contract PasanakuTest is Test {
 
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
-        vm.expectRevert(Pasanaku_InvalidAmount.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__InvalidAmount.selector);
         pasanaku.deposit(gameId, amount + 1);
     }
 
@@ -217,7 +217,7 @@ contract PasanakuTest is Test {
 
         vm.startPrank(NON_PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
-        vm.expectRevert(Pasanaku_NotAPlayer.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__NotAPlayer.selector);
         pasanaku.deposit(gameId, amount);
     }
 
@@ -234,7 +234,7 @@ contract PasanakuTest is Test {
         // try to deposit
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
-        vm.expectRevert(Pasanaku_GameEnded.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__GameEnded.selector);
         pasanaku.deposit(gameId, amount);
     }
 
@@ -252,7 +252,7 @@ contract PasanakuTest is Test {
         pasanaku.deposit(gameId, amount);
 
         // try to deposit again
-        vm.expectRevert(Pasanaku_AlreadyDepositedInCurrentPeriod.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__AlreadyDepositedInCurrentPeriod.selector);
         pasanaku.deposit(gameId, amount);
     }
 
@@ -344,7 +344,7 @@ contract PasanakuTest is Test {
             sender = players[1];
         }
         vm.startPrank(sender);
-        vm.expectRevert(Pasanaku_IsNotPlayerTurnToWidthdraw.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__IsNotPlayerTurnToWidthdraw.selector);
         pasanaku.claimPrize(gameId, period);
     }
 
@@ -365,7 +365,7 @@ contract PasanakuTest is Test {
         uint256 period = 0;
         address winner = pasanaku.getWinner(gameId, period); // the player that can claim the prize in this period
         vm.startPrank(winner);
-        vm.expectRevert(Pasanaku_NotAllPlayersHaveDeposited.selector);
+        vm.expectRevert(Pasanaku.Pasanaku__NotAllPlayersHaveDeposited.selector);
         pasanaku.claimPrize(gameId, period);
     }
 
