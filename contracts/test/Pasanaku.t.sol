@@ -2,9 +2,9 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
-import {Pasanaku} from "../src/Pasanaku.sol";
-import {ERC20} from "openzeppelin-contracts/token/ERC20/ERC20.sol";
 import {VRFCoordinatorV2Mock} from "chainlink/v0.8/mocks/VRFCoordinatorV2Mock.sol";
+import {ERC20} from "openzeppelin-contracts/token/ERC20/ERC20.sol";
+import {Pasanaku} from "../src/Pasanaku.sol";
 
 contract PasanakuTest is Test {
     address private constant PLAYER_1 = address(1);
@@ -81,6 +81,18 @@ contract PasanakuTest is Test {
 
         Pasanaku.Game memory game = pasanaku.getGame(gameId);
         assertEq(game.startDate, block.timestamp);
+    }
+
+    function testFuzz_start_EmitsGameStartedEvent(
+        uint256 frequency,
+        uint256 amount,
+        address[] calldata inputPlayers,
+        address inputToken
+    ) public {
+        vm.assume(frequency > 0);
+        vm.expectEmit(true, true, true, true);
+        emit GameStarted(1, frequency, address(inputToken), amount, inputPlayers);
+        pasanaku.start(frequency, amount, inputPlayers, address(inputToken));
     }
 
     function test_start_EmitsGameStartedEvent() public {
@@ -191,24 +203,15 @@ contract PasanakuTest is Test {
         pasanaku.deposit(gameId, amount);
     }
 
-    function test_deposit_RevertsWhenAmountIsLower() public {
-        uint256 amount = 1 ether;
-        uint256 gameId = startGameAndFulfillRandomWords(amount);
+    function testFuzz_deposit_RevertsWhenAmountIsWrong(uint256 amount) public {
+        uint256 gameAmount = 1 ether;
+        vm.assume(amount != gameAmount);
+        uint256 gameId = startGameAndFulfillRandomWords(gameAmount);
 
         vm.startPrank(PLAYER_1);
         erc20Contract.approve(address(pasanaku), amount);
         vm.expectRevert(Pasanaku.Pasanaku__InvalidAmount.selector);
-        pasanaku.deposit(gameId, amount - 1);
-    }
-
-    function test_deposit_RevertsWhenAmountIsHigher() public {
-        uint256 amount = 1 ether;
-        uint256 gameId = startGameAndFulfillRandomWords(amount);
-
-        vm.startPrank(PLAYER_1);
-        erc20Contract.approve(address(pasanaku), amount);
-        vm.expectRevert(Pasanaku.Pasanaku__InvalidAmount.selector);
-        pasanaku.deposit(gameId, amount + 1);
+        pasanaku.deposit(gameId, amount);
     }
 
     function test_deposit_RevertsWhenSenderIsNotAPlayer() public {

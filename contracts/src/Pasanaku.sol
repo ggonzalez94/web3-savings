@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity 0.8.19;
 
 import {Ownable} from "openzeppelin-contracts/access/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/token/ERC20/IERC20.sol";
@@ -20,9 +20,9 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     ///////////////////
     struct Game {
         uint256 startDate; // the time when the game started
-        uint256 frequency; //should we set a min and max cap on the frequency to avoid periods being super short or super long?
+        uint256 frequency; // TODO: Set max frequency?
         uint256 amount; // to be deposited every period
-        address token; //should we have a set of allowed tokens?
+        address token;
         bool ready; // true if the random number has been generated
         address[] players; // the players of the game. The order of the players is decided by a random number
     }
@@ -32,7 +32,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
         uint256 lastPlayed; // the last time the player deposited
     }
 
-    // represents a turn in the game and the accumulated prize for that turn
+    // represents a turn to withdraw in the game and the accumulated prize for that turn
     struct Turn {
         address player;
         uint256 prize; // accumulated prize for that turn
@@ -50,7 +50,7 @@ contract Pasanaku is Ownable, VRFConsumerBaseV2 {
     bytes32 private immutable KEY_HASH; // Gas Lane
 
     mapping(uint256 id => Game game) private _games;
-    mapping(uint256 gameId => mapping(address playerAddress => Player player)) private _players; // we also use a mapping to easily query players
+    mapping(uint256 gameId => mapping(address playerAddress => Player player)) private _players;
     mapping(uint256 gameId => mapping(uint256 turnId => Turn turn)) private _turns; // Turn for claming the prize of each player
     mapping(address token => uint256 balance) private _revenue; // revenue balance for each token
 
